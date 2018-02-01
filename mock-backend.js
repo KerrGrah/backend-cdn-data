@@ -3,11 +3,8 @@ const bodyParser = require('body-parser');
 const cors = require('cors')
 
 const app = express();
-const corsOptions = {
-  origin: "http://localhost:3001"
-}
 
-app.use(cors(corsOptions))
+app.use(cors())
 
 
 // Settings
@@ -50,10 +47,12 @@ console.log('[INIT] Loaded data...');
 
 
 // Shift all audience timestamps to end on Date.now() instead
-setInterval(()=> {
+function resetTimestamps() {
+
   const nowTimestamp = Date.now();
   const time = new Date(nowTimestamp);
-  if (time.getMinutes() === 0 || time.getMinutes() === 30 ) {
+// would only update at 30 minute intervals for clean time data, but can't trust heroku sleeping...
+//  if (time.getMinutes() === 0 || time.getMinutes() === 30 ) {
   console.log("reset data time stamps at", time);
 for (const data of audienceData.values()) {
   // Calculate time offset
@@ -64,7 +63,7 @@ for (const data of audienceData.values()) {
     for (const entry of data.audience) {
       entry[0] += offset;
     }
-  }
+//  }
 }
 
 // Shift all bandwidth timestamp to end on Date.now() instead
@@ -83,7 +82,13 @@ for (const data of bandwidthData.values()) {
   }
 }
 }
-}, 60000);
+}
+
+resetTimestamps();
+
+setInterval(()=> {
+  resetTimestamps();
+}, 59999);
 
 
 // Remove unused fields from raw data
@@ -141,6 +146,7 @@ function rollDice() {
 const authMap = new Map();
 const userSet = new Set();
 
+
 // Handling request routes
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -153,7 +159,6 @@ app.get('/', (request, response) => {
 // Authhentication route
 app.post('/auth', (request, response) => {
 
-  //  console.log(request);
   // Dice of death
   if (!rollDice()) {
     response.status(503).send("Server failure");
@@ -187,6 +192,18 @@ app.post('/auth', (request, response) => {
 
     // Return token to User
     response.send({ session_token: token });
+
+
+    // automatic 'logout' so that multiple origins can login to same account
+
+      setTimeout(()=> {
+        const cutMap = authMap.delete(token)
+        if (cutMap) {
+           userSet.delete(request.body.identifiant)
+      }
+    }, 10000)
+
+    console.log("logged in");
   } else {
     response.status(404).send();
     console.log('POST, /auth 404');
@@ -216,6 +233,7 @@ app.post('/logout', (request, response) => {
     authMap.delete(request.body.session_token);
     response.send();
   } else {
+    // to not fill up the console with 403s while logout is automatic
     response.status(403).send();
     console.log('POST, /logout 403');
   }
@@ -455,6 +473,7 @@ app.post('/streams', (request, response) => {
 
 // Sliced bandwidth
 app.post('/bandwidth', (request, response) => {
+
   // Dice of death
   if (!rollDice()) {
     response.status(503).send("Server failure");
@@ -479,8 +498,8 @@ app.post('/bandwidth', (request, response) => {
     const slicedData = { cdn: [], p2p: []};
     for (const key of ['cdn', 'p2p']) {
       for (const entry of wholeData[key]) {
-        console.log(entry[0], fromTimestamp, entry[0] >= fromTimestamp );
-        console.log( entry[0], toTimestamp, entry[0] <= toTimestamp);
+      //  console.log(entry[0], fromTimestamp, entry[0] >= fromTimestamp );
+      //  console.log( entry[0], toTimestamp, entry[0] <= toTimestamp);
         if (entry[0] >= fromTimestamp && entry[0] <= toTimestamp) {
           slicedData[key].push(entry);
         }
@@ -538,6 +557,8 @@ app.post('/bandwidth', (request, response) => {
       });
     }
   } else {
+
+    console.log(request.body);
     response.status(403).send();
     console.log('POST, /bandwidth 403');
   }
